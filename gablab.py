@@ -5,10 +5,9 @@
 
 import pdb
 import numpy as np
-import pylab
 import scikits.audiolab as audiolab
 import scikits.samplerate as samplerate
-from matplotlib import rc
+from matplotlib import rc, pyplot
 
 def odd(n): return n+(1-n%2)
 def even(n): return n+n%2
@@ -167,7 +166,7 @@ ____________________________________________________________
 Basis pursuit denoising (BPDN) 
 
 Solves the problem:
-	min ||x||_1 s.t. ||b-Ax||_2<e
+    min ||x||_1 s.t. ||b-Ax||_2<e
 given A and b.
 
 Features: should work with these dictionary types:
@@ -235,7 +234,7 @@ _______________________________________________________________
 Generalized basis pursuit denoising (G-BPDN)
 
 Solves the problem:
-	min ||f(|x|)||_1 s.t. ||b-Ax||_2<e
+    min ||f(|x|)||_1 s.t. ||b-Ax||_2<e
 given A and b and f().  Ideally the function f() will sparsify |x|
 
 Features: should work with these dictionary types:
@@ -244,7 +243,7 @@ Features: should work with these dictionary types:
 Implemented using fast projected gradient descent
 _______________________________________________________________
 '''
-def GBPDN(A,b,f,fgrad,maxerr=1e-12,maxits=1000,stoptol=1e-4,smooth=1e-4,decay=1):
+def GBPDN_fista(A,b,f,fgrad,maxerr=1e-12,maxits=1000,stoptol=1e-4,smooth=1e-4,decay=1):
     # require b == A.dot(A.transpose().dot(b))
     
     # init
@@ -314,25 +313,27 @@ def GBPDN(A,b,f,fgrad,maxerr=1e-12,maxits=1000,stoptol=1e-4,smooth=1e-4,decay=1)
 
     return x
 
-def GBPDN_mom(A,b,f,fgrad,maxerr=1e-12,maxits=1000,stoptol=1e-4,smooth=1e-4,decay=1):
+def GBPDN_momentum(A, b, f, fgrad, maxerr=1e-12, maxits=1000, stoptol=1e-4, muinit=1e-2, smoothinit=1e-4, momentum=0.9, anneal=0.98):
     # require b == A.dot(A.transpose().dot(b))
     
     # init
-    mu   = 1e-2
+    mu   = muinit
+    smooth = smoothinit
+    beta = momentum
+
     x0   = A.conj().transpose().dot(b)
     x    = np.copy(x0)
-    grad = 0
-    beta = 0.9
+    grad = 0    
     prev_obj  = np.inf
 
     it=0
     while it<maxits:
         it+=1
-        smooth *= decay
-        mu *= decay
-
+        mu *= anneal
+        smooth *= anneal
+        
         # gradient step w/ momentum
-        grad = beta*grad - mu * (1-beta) * PInf(x/smooth) * fgrad(PInf(f(np.abs(x))/smooth))
+        grad = beta*grad - mu*(1-beta)*PInf(x/smooth)*fgrad(PInf(f(np.abs(x))/smooth))
         u = x + grad
         
         # projection
@@ -344,9 +345,9 @@ def GBPDN_mom(A,b,f,fgrad,maxerr=1e-12,maxits=1000,stoptol=1e-4,smooth=1e-4,deca
         # check
         obj = np.linalg.norm(f(np.abs(x)),1)
         if obj > prev_obj:
-            x = np.copy(xlast)
+            #x = np.copy(xlast)
             print 'obj increased'
-            break
+            #break
         elif np.abs(obj - prev_obj)<stoptol:
             print 'stoptol reached'
             break
@@ -544,23 +545,20 @@ def TestBPDN2():
     tfgrid = np.reshape(range(0,A.N),(A.N/A.fftLen,A.fftLen))
     tfgrid = tfgrid[:,:A.fftLen/2+1]
 
-    pylab.subplot(2,1,1)
-    pylab.imshow(m[tfgrid].transpose(), aspect='auto', interpolation='bilinear', origin='lower')
+    pyplot.subplot(2,1,1)
+    pyplot.imshow(m[tfgrid].transpose(), aspect='auto', interpolation='bilinear', origin='lower')
 
     # transient decomp
     m = np.log10(np.abs(B.conj().transpose().dot(ytrans)))
     tfgrid = np.reshape(range(0,B.N),(B.N/B.fftLen,B.fftLen))
     tfgrid = tfgrid[:,:B.fftLen/2+1]
 
-    pylab.subplot(2,1,2)
-    pylab.imshow(m[tfgrid].transpose(), aspect='auto', interpolation='bilinear', origin='lower')
+    pyplot.subplot(2,1,2)
+    pyplot.imshow(m[tfgrid].transpose(), aspect='auto', interpolation='bilinear', origin='lower')
 
-    pylab.show()
+    pyplot.show()
 
-def TestGBPDN1():
-    rc('text', usetex=True)
-    rc('font', family='serif')
-
+def TestGBPDN1():   
     N=200
     M=50
 
@@ -578,50 +576,32 @@ def TestGBPDN1():
         x[n:n+L] = 0.25 + np.random.rand(1)
 
     # synth
-    b = A.dot(x)
-
-    snr = 40
-    #nvar = np.sum(np.abs(b)**2)/(10**(snr/10))    
+    b = A.dot(x)        
     nvar = 1e-12
-    
-    axes = []
-    fig = pylab.figure()
-    
-    print 'Running basis pursuit denoising'
-    print '--------------------------------'
-
+       
+    print 'Running basis pursuit denoising'    
     f,fgrad = FL_factory(gamma=1)        
-    xe = GBPDN(A,b,f,fgrad,maxerr=nvar,maxits=5000,stoptol=1e-6,smooth=1e-5)
+    xe_bpdn = GBPDN_momentum(A,b,f,fgrad,maxerr=nvar,maxits=5000,stoptol=1e-5,muinit=1e-1,smoothinit=1e-4,momentum=0.9,anneal=0.96)
     
-    ax = fig.add_subplot(211)
-    ax.grid(True)
-    ax.plot(x, color='k', linewidth=4, alpha=0.4)
-    ax.plot(np.real(xe), color='k')
-    ax.set_ylim((-0.5,1.5))
-    axes.append(ax)
-        
-    print 'Running generalized basis pursuit denoising'
-    print '--------------------------------'    
-    f,fgrad = FL_factory(gamma=0.8)
-    xe = GBPDN(A,b,f,fgrad,maxerr=nvar,maxits=5000,stoptol=1e-6,smooth=1e-5)
-
-    ax = fig.add_subplot(212)
-    ax.grid(True)
-    ax.plot(x, color='k', linewidth=4, alpha=0.4)
-    ax.plot(np.real(xe), color='k')
-    ax.set_ylim((-0.5,1.5))
-    axes.append(ax)
-
-    axes[0].set_title('BPDN estimate')
-    axes[1].set_title('G-BPDN estimate')
-    axes[1].set_xlabel('Dictionary index')
-    axes[0].set_ylabel('Coefficient amplitude')
-    axes[1].set_ylabel('Coefficient amplitude')
+    print 'Running generalized basis pursuit denoising'        
+    f,fgrad = FL_factory(gamma=0.75)
+    xe_gbpdn = GBPDN_momentum(A,b,f,fgrad,maxerr=nvar,maxits=5000,stoptol=1e-5,muinit=1e-1,smoothinit=1e-4,momentum=0.9,anneal=0.96)
     
-    pylab.show()
-    fig.savefig('PiecewiseConstantSupport.pdf',pad_inches=0,bbox_inches='tight')
-     
-def TestGBPDN2():
+    rc('text', usetex=True)
+    rc('font', family='serif')    
+    
+    pyplot.figure()
+    
+    pyplot.plot(x, color='k', linewidth=4, alpha=0.4)
+    pyplot.plot(np.real(xe_bpdn), color='k')
+    pyplot.plot(np.real(xe_gbpdn), color='r')
+    pyplot.grid(True)            
+    pyplot.xlabel('Dictionary index')
+    pyplot.ylabel('Coefficient amplitude')
+    pyplot.legend(('True', 'BPDN', 'GBPDN'))
+    pyplot.show()
+
+def TestGBPDN2():    
     # ________________________________________
     print 'Test: generalized basis pursuit decomposition'
 
@@ -647,7 +627,7 @@ def TestGBPDN2():
     f,fgrad = BP_factory()
     #f,fgrad = TT_factory(tonemap,transmap)
         
-    xe = GBPDN(C,b+n,f,fgrad,maxerr=nvar,maxits=1000,stoptol=1e-3,smooth=1e-4)    
+    xe = GBPDN_momentum(C,b+n,f,fgrad,maxerr=nvar,maxits=200,stoptol=1e-3,muinit=1e-1,momentum=0.9,smoothinit=1e-5,anneal=0.96)    
     ye = np.real(C.dot(xe))
     r = b-ye;
     rpow = 10*np.log10(r.conj().dot(r))
@@ -689,8 +669,8 @@ def TestGBPDN2():
     
     ## be = np.real(C.dot(x))
     ## #be = C.dot(x)
-    ## pylab.plot(np.abs(x) - np.abs(C.transpose().dot(b)))
-    ## pylab.show()
+    ## pyplot.plot(np.abs(x) - np.abs(C.transpose().dot(b)))
+    ## pyplot.show()
     ## print 'Error (should be < %1.12f): %1.12f' % (e,np.linalg.norm(b-be)**2)
     ## print '----------------------------------------'
     
