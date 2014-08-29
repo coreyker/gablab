@@ -19,8 +19,13 @@ y = np.hstack((y,np.zeros(L-len(y)))) # pad input to block boundary
 D = gl.DictionaryUnion(*[gl.GaborBlock(L,s) for s in scales])
 
 # Basis pursuit denoising analysis: min ||x||_1 s.t. ||y-Dx||_2<e
-x = gl.BPDN(D,y,maxerr=1e-12,maxits=1000)
+x = gl.BPDN(D,y,maxerr=1e-12,maxits=20)
 
+# Resynthesis
+ye = np.real(D.dot(x))
+
+# Error
+print 'Error is: %2.5f' % np.sum((ye-y)**2)
 ```
 
 
