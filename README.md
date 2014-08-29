@@ -12,8 +12,8 @@ y = np.random.randn(10000) # test signal
 scales = [256,512,1024,2048, 4096]
 L = np.ceil(len(y)/float(np.max(scales)))*np.max(scales) 
 
-# calc block boundary
-y = np.hstack((y,np.zeros(L-len(y)))) # pad input to block boundary
+# pad input to block boundary
+y = np.hstack((y,np.zeros(L-len(y)))) 
 
 # Build multi-scale Gabor dictionary
 D = gl.DictionaryUnion(*[gl.GaborBlock(L,s) for s in scales])
