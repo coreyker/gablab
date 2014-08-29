@@ -3,7 +3,7 @@
 
 import numpy as np
 import pylab
-from GabLab import *
+from gablab import *
 from scikits import audiolab, samplerate
 
 fs = 8000. # sample rate
